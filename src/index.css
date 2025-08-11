@@ -74,6 +74,10 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  --wa-primary: #1daa61;
+  --wa-secondary: #f7f5f3;
+  --layer-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dark {
@@ -108,6 +112,8 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  --wa-primary: #28d146;
 }
 
 @layer base {
@@ -117,4 +123,89 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+@font-face {
+  font-family: tgico;
+  src: url(assets/fonts/tgico.ttf?1vrulf) format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+.tgico:after,
+.tgico:before,
+[class*=" tgico-"]:after,
+[class*=" tgico-"]:before,
+[class^="tgico-"] {
+  speak: never;
+  font-feature-settings: normal;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-family: tgico !important;
+  font-style: normal;
+  font-variant: normal;
+  font-weight: 400;
+  line-height: 1;
+  text-transform: none;
+  font-size: 1.4rem;
+}
+
+.tgico-check:before {
+  content: "\E900";
+}
+.tgico-double-check:before {
+  content: "\E901";
+}
+.tgico-device:before {
+  content: "\E902";
+}
+
+.tgico-chats:before {
+  content: "\E9A8";
+}
+
+.tgico-setting-filled:before {
+  content: "\EA27";
+}
+
+.tgico-status:before {
+  content: "\EA3B";
+}
+
+.tgico-calls:before {
+  content: "\E9DE";
+}
+
+.tgico-add:before {
+  content: "\E9EC";
+}
+
+.tgico-3dots:before {
+  content: "\E9C8";
+}
+
+.tgico-search:before {
+  content: "\EA1F";
+}
+
+.tgico-previous:before {
+  content: "\E914";
+}
+
+
+.tgico-new-group::before {
+  content: "\E9D0";
+}
+
+.tgico-star::before {
+  content: "\E971";
+}
+
+.tgico-box::before {
+  content: "\E93D";
+}
+
+.tgico-logout::before {
+  content: "\E9B7";
 }

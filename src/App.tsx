@@ -1,35 +1,48 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import React from "react";
+import { useWindowDimensions } from "@/hooks/useWindowDimensions";
+import { useToggleState } from "@/hooks/useToggleState";
+import { useMediaQuery } from "@custom-react-hooks/use-media-query";
 
-function App() {
-  const [count, setCount] = useState(0)
+import { LeftColumn } from "@/components/LeftColumn";
+import { RightColumn } from "@/components/RightColumn";
+import type { IconItem } from "@/components/ui/TooltipIcon";
+
+const iconGroups: { top: IconItem[]; bottom: IconItem[] } = {
+  top: [
+    { iconClass: "tgico tgico-chats", label: "Chats" },
+    { iconClass: "tgico tgico-status", label: "Status" },
+    { iconClass: "tgico tgico-calls", label: "Calls" },
+  ],
+  bottom: [
+    { iconClass: "tgico tgico-setting-filled", label: "Settings" },
+    {
+      iconClass: "",
+      label: "Profile",
+      isAvatar: true,
+      avatarSrc: "https://github.com/shadcn.png",
+      avatarFallback: "CN",
+    },
+  ],
+};
+
+const App: React.FC = () => {
+  const { colRightRef } = useWindowDimensions();
+  const { state: dataState, toggleState: toggleDataState } = useToggleState("leftOpen");
+  const inbtw = useMediaQuery("only screen and (min-width : 640px) and (max-width : 1024px)");
+  const isMobile = useMediaQuery("only screen and (max-width : 640px)");
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
-}
+    <div className="w-dvw h-[calc(var(--vh,1vh)*100)] flex overflow-hidden relative">
+      <LeftColumn dataState={dataState} iconGroups={iconGroups} />
+      <RightColumn
+        dataState={dataState}
+        colRightRef={colRightRef}
+        toggleDataState={toggleDataState}
+        inbtw={inbtw}
+        isMobile={isMobile}
+      />
+    </div>
+  );
+};
 
-export default App
+export default App;
