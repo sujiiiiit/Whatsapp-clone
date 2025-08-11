@@ -31,6 +31,7 @@ const App: React.FC = () => {
   const inbtw = useMediaQuery("only screen and (min-width : 640px) and (max-width : 1024px)");
   const isMobile = useMediaQuery("only screen and (max-width : 640px)");
 
+
   return (
     <div className="w-dvw h-[calc(var(--vh,1vh)*100)] flex overflow-hidden relative">
       <LeftColumn dataState={dataState} iconGroups={iconGroups} />
