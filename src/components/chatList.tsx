@@ -3,7 +3,8 @@ import { useChat } from "@/lib/ChatContext";
 import React, { useState, useMemo } from 'react';
 
 const ChatList: React.FC = () => {
-  const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername, unreadCounts } = useChat();
+  const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername, unreadCounts, userDirectory } = useChat();
+  // We'll compute a directory of all known users from conversations + online + userDirectory via getPartnerUsername (already resolved inside context)
   const [username, setUsername] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -36,8 +37,8 @@ const ChatList: React.FC = () => {
   }
 
   return (
-    <div className="flex w-full flex-col gap-2">
-      {sortedConversations.length === 0 && <p className="text-xs text-center text-muted-foreground mt-2">No chats yet</p>}
+    <div className="flex w-full flex-col gap-2 overflow-y-auto">
+  
       {sortedConversations.map((convo: any) => {
         const lastMsg = messagesMap[convo._id]?.slice(-1)[0];
         const partnerId = convo.memberIds.find((id: string) => id !== me.userId);
@@ -69,26 +70,34 @@ const ChatList: React.FC = () => {
           </div>
         );
       })}
-      {/* New / unseen contacts currently online (no existing direct conversation) */}
-  {online.filter(u => !sortedConversations.some((c: any) => c.memberIds.includes(u.userId))).map(u => {
-        return (
-          <div key={u.userId} onClick={()=> openDirect(u.username)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition`}>
-            <Avatar className="size-11">
-              <AvatarImage src={""} />
-              <AvatarFallback>{u.username.slice(0,2).toUpperCase()}</AvatarFallback>
-            </Avatar>
-            <div className="flex-1 ml-4 min-w-0">
-              <div className="flex justify-between items-center">
-                <h4 className="font-medium text-gray-900 truncate">{u.username}</h4>
-                <span className="text-[10px] text-gray-500">online</span>
-              </div>
-              <div className="flex items-center text-xs text-gray-500 truncate">
-                <span className="truncate">Start chatting</span>
+      {/* All other registered users (including offline) without an existing conversation */}
+      {me && Object.entries(userDirectory)
+        .filter(([uid]) => uid !== me.userId)
+        .filter(([uid]) => {
+          // exclude if direct conversation already exists
+          return !Object.values(conversations).some((c: any) => c.type==='direct' && c.memberIds.includes(me.userId) && c.memberIds.includes(uid));
+        })
+        .sort((a,b)=> a[1].localeCompare(b[1]))
+        .map(([uid, uname]) => {
+          const isUserOnline = online.some(o => o.userId === uid);
+          return (
+            <div key={uid} onClick={()=> openDirect(uname)} className="w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition">
+              <Avatar className="size-11">
+                <AvatarImage src={""} />
+                <AvatarFallback>{uname.slice(0,2).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <div className="flex-1 ml-4 min-w-0">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-medium text-gray-900 truncate">{uname}</h4>
+                  <span className="text-[10px] text-gray-500">{isUserOnline ? 'online' : 'offline'}</span>
+                </div>
+                <div className="flex items-center text-xs text-gray-500 truncate">
+                  <span className="truncate">Start chatting</span>
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
     </div>
   );
 };

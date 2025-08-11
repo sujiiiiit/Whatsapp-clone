@@ -159,10 +159,10 @@ export const RightColumn: React.FC<RightColumnProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-            <IconButton className="tgico tgico-search" />
-            <IconButton className="tgico tgico-3dots" />
-        </div>
+    <div className="flex items-center gap-2">
+      <IconButton className="tgico tgico-search" />
+      <IconButton className="tgico tgico-3dots" />
+    </div>
       </div>
       <div className="w-full flex-1 relative z-[4] bg-[var(--wa-secondary)] flex flex-col overflow-hidden">
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-6 flex flex-col gap-4">

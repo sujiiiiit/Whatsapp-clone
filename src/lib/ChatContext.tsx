@@ -23,7 +23,9 @@ interface ChatContextValue {
   conversations: Record<string, Conversation>;
   messages: Message[]; // messages for active conversation
   messagesMap: { [id: string]: Message[] }; // all loaded messages per convo
+  userDirectory: Record<string,string>;
   login: (username: string) => Promise<boolean>;
+  logout: () => void;
   openDirect: (username: string) => Promise<void>;
   openConversation: (conversationId: string) => Promise<void>;
   send: (text: string) => void;
@@ -32,6 +34,7 @@ interface ChatContextValue {
   getPartnerUsername: (conversationId: string) => string | undefined;
   isPartnerOnline: (conversationId: string) => boolean;
   unreadCounts: Record<string, number>;
+  hydrated: boolean;
 }
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
@@ -50,56 +53,63 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [hydrated, setHydrated] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const { io } = await import('socket.io-client');
-      const socket = io(serverUrl);
-      socketRef.current = socket;
-      socket.on('presence:users', (list: PresenceUser[]) => setOnline(list));
-      socket.on('presence:users', (list: PresenceUser[]) => {
-        setUserDirectory(prev => ({ ...prev, ...Object.fromEntries(list.map(u => [u.userId, u.username])) }));
-      });
-      socket.on('message:new', (msg: Message) => {
-        const convoId = (msg.conversationId || msg.roomId)!;
-        setMessagesByConvo(prev => {
-          const list = prev[convoId] || [];
-          if (msg.clientMessageId) {
-            const idx = list.findIndex(m => m._id === msg.clientMessageId || m.clientMessageId === msg.clientMessageId);
-            if (idx !== -1) {
-              const next = [...list];
-              next[idx] = msg;
-              return { ...prev, [convoId]: next };
-            }
+  const ensureSocket = useCallback(async () => {
+    if (socketRef.current && socketRef.current.connected) return socketRef.current;
+    const { io } = await import('socket.io-client');
+    const socket = io(serverUrl);
+    socketRef.current = socket;
+    socket.on('presence:users', (list: PresenceUser[]) => setOnline(list));
+    socket.on('presence:users', (list: PresenceUser[]) => {
+      setUserDirectory(prev => ({ ...prev, ...Object.fromEntries(list.map(u => [u.userId, u.username])) }));
+    });
+    socket.on('message:new', (msg: Message) => {
+      const convoId = (msg.conversationId || msg.roomId)!;
+      setMessagesByConvo(prev => {
+        const list = prev[convoId] || [];
+        if (msg.clientMessageId) {
+          const idx = list.findIndex(m => m._id === msg.clientMessageId || m.clientMessageId === msg.clientMessageId);
+          if (idx !== -1) {
+            const next = [...list];
+            next[idx] = msg;
+            return { ...prev, [convoId]: next };
           }
-          return { ...prev, [convoId]: [...list, msg] };
-        });
-        setConversations(prev => prev[convoId] ? prev : { ...prev, [convoId]: { _id: convoId, type: 'direct', memberIds: [msg.senderId] } as any });
-        // Unread counts now recalculated in effect below; no incremental mutation needed.
-      });
-      socket.on('messages:seen', (data: { conversationId: string; userId: string }) => {
-        setMessagesByConvo(prev => {
-          const list = prev[data.conversationId];
-          if (!list) return prev;
-            return { ...prev, [data.conversationId]: list.map(m => m.senderId === data.userId ? m : { ...m, seenBy: Array.from(new Set([...(m.seenBy||[]), data.userId])) }) };
-        });
-        if (data.userId === me?.userId) {
-          // Recalc effect will zero active convo; leave minimal immediate update for snappier UI
-          setUnreadCounts(prev => data.conversationId in prev ? { ...prev, [data.conversationId]: 0 } : prev);
         }
+        return { ...prev, [convoId]: [...list, msg] };
       });
-      socket.on('typing', (data: { conversationId: string; userId: string; isTyping: boolean }) => {
-        setTypingByConvo(prev => {
-          const set = new Set(prev[data.conversationId] ? Array.from(prev[data.conversationId]) : []);
-            if (data.isTyping) set.add(data.userId); else set.delete(data.userId);
-          return { ...prev, [data.conversationId]: set };
-        });
+      setConversations(prev => {
+        if (prev[convoId]) return prev;
+        const members = new Set<string>();
+        if (msg.senderId) members.add(msg.senderId);
+        if (me?.userId) members.add(me.userId);
+        return { ...prev, [convoId]: { _id: convoId, type: 'direct', memberIds: Array.from(members) } as any };
       });
-    })();
-    return () => { socketRef.current?.disconnect(); };
-  }, [serverUrl]);
+    });
+    socket.on('messages:seen', (data: { conversationId: string; userId: string }) => {
+      setMessagesByConvo(prev => {
+        const list = prev[data.conversationId];
+        if (!list) return prev;
+        return { ...prev, [data.conversationId]: list.map(m => m.senderId === data.userId ? m : { ...m, seenBy: Array.from(new Set([...(m.seenBy||[]), data.userId])) }) };
+      });
+      if (data.userId === me?.userId) {
+        setUnreadCounts(prev => data.conversationId in prev ? { ...prev, [data.conversationId]: 0 } : prev);
+      }
+    });
+    socket.on('typing', (data: { conversationId: string; userId: string; isTyping: boolean }) => {
+      setTypingByConvo(prev => {
+        const set = new Set(prev[data.conversationId] ? Array.from(prev[data.conversationId]) : []);
+        if (data.isTyping) set.add(data.userId); else set.delete(data.userId);
+        return { ...prev, [data.conversationId]: set };
+      });
+    });
+    return socket;
+  }, [serverUrl, me]);
+
+  useEffect(() => { ensureSocket(); return () => { socketRef.current?.disconnect(); }; }, [ensureSocket]);
 
   const login = useCallback(async (username: string) => {
+    await ensureSocket();
     if (!socketRef.current) return false;
     return new Promise<boolean>((resolve) => {
       socketRef.current!.emit('user:online', { username }, (user?: { userId: string; username: string }) => {
@@ -145,10 +155,20 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setUnreadCounts(Object.fromEntries(arr.map(r => [r.conversationId, r.count])));
                   }
                 } catch {/* ignore */}
+                // Fetch all users for directory (to allow starting new chats with offline users)
+                try {
+                  const all = await fetch(`${serverUrl}/api/users-all`);
+                  if (all.ok) {
+                    const list: { _id: string; username: string }[] = await all.json();
+                    setUserDirectory(prev => ({ ...prev, ...Object.fromEntries(list.map(u => [u._id, u.username])) }));
+                  }
+                } catch {/* ignore */}
               }
             } catch (e) {
               // eslint-disable-next-line no-console
               console.error('Failed to prefetch conversations', e);
+            } finally {
+              setHydrated(true);
             }
           })();
           resolve(true);
@@ -175,19 +195,57 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const openDirect = useCallback(async (otherUsername: string) => {
     if (!socketRef.current) return;
     await new Promise<void>((resolve) => {
-      socketRef.current!.emit('conversation:direct', { otherUsername }, (convo?: Conversation) => {
+      socketRef.current!.emit('conversation:direct', { otherUsername }, async (convo?: Conversation) => {
         if (convo) {
           setConversations(prev => ({ ...prev, [convo._id]: convo }));
           socketRef.current!.emit('join', convo._id);
           setActiveConversationId(convo._id);
-          // store other username mapping
           const otherId = convo.memberIds.find(id => id !== me?.userId);
           if (otherId) setUserDirectory(prev => ({ ...prev, [otherId]: otherUsername }));
           loadMessages(convo._id).then(()=>resolve());
-        } else resolve();
+        } else {
+          // Fallback via REST (in case socket ack failed)
+          try {
+            if (!me) { resolve(); return; }
+            const resp = await fetch(`${serverUrl}/api/conversations/direct`, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ me: me.username, other: otherUsername }) });
+            if (resp.ok) {
+              const c: any = await resp.json();
+              const id = c._id;
+              setConversations(prev => ({ ...prev, [id]: { _id: id, type: c.type, memberIds: c.memberIds.map((m:any)=> m.toString ? m.toString(): m) } }));
+              socketRef.current!.emit('join', id);
+              setActiveConversationId(id);
+              const otherId = c.memberIds.find((id:any)=> id !== me.userId);
+              if (otherId) setUserDirectory(prev => ({ ...prev, [otherId]: otherUsername }));
+              await loadMessages(id);
+            } else {
+              // eslint-disable-next-line no-console
+              console.warn('REST fallback failed creating direct conversation');
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('openDirect fallback error', e);
+          } finally {
+            resolve();
+          }
+        }
       });
     });
-  }, [loadMessages]);
+  }, [loadMessages, me, serverUrl]);
+
+  const logout = useCallback(() => {
+    typingTimeoutRef.current && clearTimeout(typingTimeoutRef.current);
+    socketRef.current?.disconnect();
+    socketRef.current = null as any;
+    setMe(undefined);
+    setActiveConversationId(undefined);
+    setConversations({});
+    setMessagesByConvo({});
+    setTypingByConvo({});
+    setUnreadCounts({});
+    setUserDirectory({});
+    setOnline([]);
+  setHydrated(false);
+  }, []);
 
   const openConversation = useCallback(async (conversationId: string) => {
     if (!conversationId) return;
@@ -274,7 +332,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     conversations,
     messages: activeConversationId ? (messagesByConvo[activeConversationId] || []) : [],
   messagesMap: messagesByConvo,
+  userDirectory,
     login,
+  logout,
     openDirect,
   openConversation,
     send,
@@ -283,6 +343,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   getPartnerUsername,
   isPartnerOnline,
   unreadCounts,
+  hydrated,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
