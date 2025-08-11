@@ -3,7 +3,7 @@ import { useChat } from "@/lib/ChatContext";
 import React, { useState, useMemo } from 'react';
 
 const ChatList: React.FC = () => {
-  const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername } = useChat();
+  const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername, unreadCounts } = useChat();
   const [username, setUsername] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -47,6 +47,7 @@ const ChatList: React.FC = () => {
         const typingNow = isTyping(convo._id);
         const lastText = typingNow ? 'typing…' : (lastMsg ? lastMsg.text : 'Start chatting');
         const time = lastMsg ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+  const unreadCount = unreadCounts?.[convo._id] ?? 0;
         return (
           <div key={convo._id} onClick={()=> openConversation(convo._id)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition ${isActive ? 'bg-[var(--wa-secondary)]' : ''}`}>
             <Avatar className="size-11">
@@ -56,7 +57,10 @@ const ChatList: React.FC = () => {
             <div className="flex-1 ml-4 min-w-0">
               <div className="flex justify-between items-center">
                 <h4 className="font-medium text-gray-900 truncate">{partnerUsername}{!onlineStatus && <span className="text-[10px] ml-1 opacity-60">(offline)</span>}</h4>
-                <span className="text-[10px] text-gray-500">{time || (onlineStatus ? 'online' : '')}</span>
+                <span className="flex items-center gap-2">
+                  <span className="text-[10px] text-gray-500">{time || (onlineStatus ? 'online' : '')}</span>
+                  {unreadCount > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-[var(--wa-primary)] text-white text-[10px] flex items-center justify-center font-medium">{unreadCount>99?'99+':unreadCount}</span>}
+                </span>
               </div>
               <div className="flex items-center text-xs text-gray-500 truncate">
                 <span className="truncate">{lastText}</span>

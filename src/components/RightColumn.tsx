@@ -23,7 +23,10 @@ export const RightColumn: React.FC<RightColumnProps> = ({
   const [draft, setDraft] = useState("");
   const [showContactHint, setShowContactHint] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
   const [floatingDate, setFloatingDate] = useState<string | null>(null);
+  // Track if we've performed initial scroll for a conversation
+  const initialScrollDoneRef = useRef<Set<string>>(new Set());
 
   function formatDateLabel(dateStr: string) {
     const d = new Date(dateStr);
@@ -36,7 +39,7 @@ export const RightColumn: React.FC<RightColumnProps> = ({
   }
 
   const grouped = useMemo(() => {
-    const groups: { label: string; items: typeof messages }[] = [];
+    const groups: { label: string; items: (typeof messages)[number][] }[] = [];
     let currentLabel: string | null = null;
     messages.forEach(m => {
       const label = formatDateLabel(m.createdAt);
@@ -49,6 +52,15 @@ export const RightColumn: React.FC<RightColumnProps> = ({
     });
     return groups;
   }, [messages]);
+
+  const firstUnreadMap = useMemo(()=>{
+    const map: Record<string,string|undefined> = {};
+    grouped.forEach(g => {
+      const firstUnread = g.items.find(m => m.senderId !== me?.userId && !(m.seenBy||[]).includes(me?.userId||''));
+      if (firstUnread) map[g.label] = firstUnread._id || firstUnread.createdAt;
+    });
+    return map;
+  }, [grouped, me]);
 
   useEffect(()=>{
     // Update floating date on scroll
@@ -82,6 +94,41 @@ export const RightColumn: React.FC<RightColumnProps> = ({
     send(draft.trim());
     setDraft("");
   };
+  // Auto-scroll to bottom when I send a new message
+  useEffect(()=>{
+    if (!me) return;
+    if (!messages.length) return;
+    const last = messages[messages.length-1];
+    if (last.senderId === me.userId) {
+      requestAnimationFrame(()=> {
+        bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      });
+    }
+  }, [messages, me]);
+  // Reset initial scroll flag when switching conversations
+  useEffect(()=>{
+    if (activeConversationId) {
+      initialScrollDoneRef.current.delete(activeConversationId);
+    }
+  }, [activeConversationId]);
+
+  // Perform initial scroll after messages load for the active conversation
+  useEffect(()=>{
+    if (!activeConversationId) return;
+    if (initialScrollDoneRef.current.has(activeConversationId)) return;
+    if (!messages.length) return; // wait until we have messages
+    requestAnimationFrame(()=>{
+      const container = scrollRef.current;
+      if (!container) return;
+      const firstUnreadEl = container.querySelector('[data-first-unread]') as HTMLElement | null;
+      if (firstUnreadEl) {
+        firstUnreadEl.scrollIntoView({ block: 'center', behavior: 'auto' });
+      } else {
+        bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      }
+      initialScrollDoneRef.current.add(activeConversationId);
+    });
+  }, [activeConversationId, messages]);
   return (
     <div
       id="col-right"
@@ -121,33 +168,44 @@ export const RightColumn: React.FC<RightColumnProps> = ({
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 pt-4 pb-6 flex flex-col gap-4">
           {!activeConversationId && <p className="text-xs opacity-70">Select a user to start chatting.</p>}
           {grouped.map(g => (
-            <div key={g.label} className="flex flex-col gap-2">
+            <div key={g.label} className="flex flex-col gap-1">
               <div data-date-header data-date-label={g.label} className="self-center text-[11px] px-3 py-1 rounded-md bg-[var(--wa-primary)] text-white shadow sticky top-0 opacity-0 pointer-events-none -mt-6"></div>
               <div className="self-center text-[11px] px-3 py-1 rounded-md bg-background3 text-foreground shadow border border-border">{g.label}</div>
               {g.items.map(m => {
                 const mine = m.senderId === me?.userId;
                 const isTemp = m._id?.startsWith('temp-');
-                const seen = (m.seenBy||[]).length > 0 && !isTemp;
+                // For my messages, consider seen if any other participant has added their id to seenBy
+                const seen = mine ? ((m.seenBy||[]).length > 0) : (m.seenBy||[]).includes(me?.userId||'');
+                // First unread in this date group for ME (only for messages not sent by me and not yet seen)
+                const isFirstUnread = (firstUnreadMap[g.label] === (m._id || m.createdAt) && !mine && !seen);
                 return (
-                  <div key={m._id || m.createdAt+Math.random()} className={`bg-background3 rounded-lg px-3 py-2 text-sm max-w-[70%] shadow ${mine ? 'self-end bg-[var(--wa-primary)] text-white' : 'self-start'} ${isTemp ? 'opacity-70 animate-pulse' : ''}`}>
-                    <p>{m.text}</p>
-                    <span className="flex items-center gap-1 text-[10px] opacity-60 mt-1">
-                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      {mine && (
-                        <>
-                          {isTemp && <span title="Sending" className="text-xs">…</span>}
-                          {!isTemp && !seen && <span title="Sent" className="text-xs">✔</span>}
-                          {seen && <span title="Seen" className="text-xs text-blue-400">✔✔</span>}
-                        </>
-                      )}
-                    </span>
-                  </div>
+                  <React.Fragment key={m._id || m.createdAt+Math.random()}>
+                    {isFirstUnread && (
+                      <div data-first-unread className="self-center my-2 text-[11px] px-3 py-1 rounded-full bg-[var(--wa-primary)]/90 text-white shadow border border-border">
+                        Unread messages
+                      </div>
+                    )}
+                    <div data-msg-id={m._id || m.createdAt} className={`flex rounded-[25px]  gap-2 bg-background3 px-3 py-2 text-sm max-w-[70%] shadow ${mine ? 'self-end bg-[var(--wa-primary-light)] ' : 'self-start bg-white'} ${isTemp ? 'opacity-70 animate-pulse' : ''}`}>
+                        <p className="whitespace-pre-wrap break-words  break-all">{m.text}</p>
+                      <span className="flex items-end justify-end gap-1 text-[10px] opacity-60 mt-1">
+                        <p className="flex flex-nowrap text-nowrap">{new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                        {mine && (
+                          <span className="flex justify-end items-end">
+                            {isTemp && <span title="Sending" className="text-xs">…</span>}
+                            {!isTemp && !seen && <span title="Sent" className="flex items-end tgico tgico-check tgico-message-sent-seen" ></span>}
+                            {!isTemp && seen && <span title="Seen" className="flex items-end tgico tgico-double-check tgico-message-sent-seen text-blue-500" ></span>}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </React.Fragment>
                 );
               })}
             </div>
           ))}
+          <div ref={bottomRef} />
         </div>
-        {floatingDate && <div className="pointer-events-none absolute top-14 left-1/2 -translate-x-1/2 z-10">
+        {floatingDate && <div className="pointer-events-none absolute top-1.5 left-1/2 -translate-x-1/2 z-10">
           <div className="text-[11px] px-3 py-1 rounded-md bg-background3/80 backdrop-blur border border-border shadow">{floatingDate}</div>
         </div>}
         <div className="p-3 flex items-center gap-2 border-t bg-background3">

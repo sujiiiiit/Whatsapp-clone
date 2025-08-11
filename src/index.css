@@ -76,6 +76,7 @@
   --sidebar-ring: oklch(0.708 0 0);
 
   --wa-primary: #1daa61;
+  --wa-primary-light: #D9FDD3;
   --wa-secondary: #f7f5f3;
   --layer-transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -149,6 +150,11 @@
   line-height: 1;
   text-transform: none;
   font-size: 1.4rem;
+  
+}
+
+.tgico-message-sent-seen::before{
+  font-size: 1rem !important;
 }
 
 .tgico-check:before {

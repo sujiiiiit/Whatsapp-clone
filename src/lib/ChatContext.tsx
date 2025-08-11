@@ -31,6 +31,7 @@ interface ChatContextValue {
   isTyping: (conversationId: string) => boolean;
   getPartnerUsername: (conversationId: string) => string | undefined;
   isPartnerOnline: (conversationId: string) => boolean;
+  unreadCounts: Record<string, number>;
 }
 
 const ChatContext = createContext<ChatContextValue | undefined>(undefined);
@@ -48,6 +49,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const socketRef = useRef<Socket | null>(null);
   const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     (async () => {
@@ -65,7 +67,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (msg.clientMessageId) {
             const idx = list.findIndex(m => m._id === msg.clientMessageId || m.clientMessageId === msg.clientMessageId);
             if (idx !== -1) {
-              // Replace optimistic with server version
               const next = [...list];
               next[idx] = msg;
               return { ...prev, [convoId]: next };
@@ -73,8 +74,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           return { ...prev, [convoId]: [...list, msg] };
         });
-        // Ensure conversation record exists (basic direct placeholder if absent)
         setConversations(prev => prev[convoId] ? prev : { ...prev, [convoId]: { _id: convoId, type: 'direct', memberIds: [msg.senderId] } as any });
+        // Unread counts now recalculated in effect below; no incremental mutation needed.
       });
       socket.on('messages:seen', (data: { conversationId: string; userId: string }) => {
         setMessagesByConvo(prev => {
@@ -82,6 +83,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (!list) return prev;
             return { ...prev, [data.conversationId]: list.map(m => m.senderId === data.userId ? m : { ...m, seenBy: Array.from(new Set([...(m.seenBy||[]), data.userId])) }) };
         });
+        if (data.userId === me?.userId) {
+          // Recalc effect will zero active convo; leave minimal immediate update for snappier UI
+          setUnreadCounts(prev => data.conversationId in prev ? { ...prev, [data.conversationId]: 0 } : prev);
+        }
       });
       socket.on('typing', (data: { conversationId: string; userId: string; isTyping: boolean }) => {
         setTypingByConvo(prev => {
@@ -132,6 +137,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
                   } catch {/* ignore */}
                 }
+                // Hydrate unread counts
+                try {
+                  const uc = await fetch(`${serverUrl}/api/users/${user.userId}/unread-counts`);
+                  if (uc.ok) {
+                    const arr: { conversationId: string; count: number }[] = await uc.json();
+                    setUnreadCounts(Object.fromEntries(arr.map(r => [r.conversationId, r.count])));
+                  }
+                } catch {/* ignore */}
               }
             } catch (e) {
               // eslint-disable-next-line no-console
@@ -181,6 +194,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setActiveConversationId(conversationId);
     if (socketRef.current) socketRef.current.emit('join', conversationId);
     await loadMessages(conversationId, true);
+  setUnreadCounts(prev => conversationId in prev ? { ...prev, [conversationId]: 0 } : prev);
   }, [loadMessages]);
 
   const send = useCallback((text: string) => {
@@ -230,9 +244,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!msgs || !msgs.length) return;
     const unseen = msgs.some(m => m.senderId !== me.userId && !(m.seenBy||[]).includes(me.userId));
     if (unseen) {
-      socketRef.current.emit('messages:seen', { conversationId: activeConversationId });
+  // small delay so UI can display "Unread messages" divider briefly
+  const timer = setTimeout(()=> socketRef.current?.emit('messages:seen', { conversationId: activeConversationId }), 400);
+  return ()=> clearTimeout(timer);
     }
   }, [activeConversationId, messagesByConvo, me]);
+
+  // Recalculate unread counts from currently loaded messages whenever messages change or active conversation switches
+  useEffect(()=>{
+    if (!me) return;
+    const next: Record<string, number> = { ...unreadCounts }; // start from existing to preserve unseen convos not yet loaded
+    Object.entries(messagesByConvo).forEach(([cid, list]) => {
+      const count = list.reduce((acc, m) => {
+        if (m.senderId !== me.userId && !(m.seenBy||[]).includes(me.userId)) return acc + 1;
+        return acc;
+      }, 0);
+      next[cid] = count;
+    });
+    if (activeConversationId) next[activeConversationId] = 0; // active convo unread should appear cleared
+    // Only update if changed to avoid re-renders
+    const changed = Object.keys(next).length !== Object.keys(unreadCounts).length || Object.entries(next).some(([k,v]) => unreadCounts[k] !== v);
+    if (changed) setUnreadCounts(next);
+  }, [messagesByConvo, me, activeConversationId]);
 
   const value: ChatContextValue = {
     me,
@@ -249,10 +282,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   isTyping,
   getPartnerUsername,
   isPartnerOnline,
+  unreadCounts,
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 };
+
+// Recalculate unread counts based on loaded messages (received & unseen only). Active conversation forced to 0.
+// This effect placed outside provider component would not have access to state; integrating within component instead.
+
 
 export function useChat() {
   const ctx = useContext(ChatContext);
