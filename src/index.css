@@ -209,3 +209,7 @@
 .tgico-logout::before {
   content: "\E9B7";
 }
+
+.tgico-send::before {
+  content: "\EA21";
+}

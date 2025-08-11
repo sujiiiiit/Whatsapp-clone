@@ -10,6 +10,7 @@ export interface Message {
   createdAt: string;
   deliveredTo?: string[];
   seenBy?: string[];
+  clientMessageId?: string; // for optimistic reconciliation
 }
 
 export interface PresenceUser { userId: string; username: string }
@@ -24,6 +25,7 @@ interface ChatContextValue {
   messagesMap: { [id: string]: Message[] }; // all loaded messages per convo
   login: (username: string) => Promise<boolean>;
   openDirect: (username: string) => Promise<void>;
+  openConversation: (conversationId: string) => Promise<void>;
   send: (text: string) => void;
   startTyping: () => void;
   isTyping: (conversationId: string) => boolean;
@@ -58,10 +60,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       socket.on('message:new', (msg: Message) => {
         const convoId = (msg.conversationId || msg.roomId)!;
-        setMessagesByConvo(prev => ({ ...prev, [convoId]: [...(prev[convoId] || []), msg] }));
-        // If we don't have this conversation in state yet, keep it minimal (direct conversations only for now)
+        setMessagesByConvo(prev => {
+          const list = prev[convoId] || [];
+          if (msg.clientMessageId) {
+            const idx = list.findIndex(m => m._id === msg.clientMessageId || m.clientMessageId === msg.clientMessageId);
+            if (idx !== -1) {
+              // Replace optimistic with server version
+              const next = [...list];
+              next[idx] = msg;
+              return { ...prev, [convoId]: next };
+            }
+          }
+          return { ...prev, [convoId]: [...list, msg] };
+        });
+        // Ensure conversation record exists (basic direct placeholder if absent)
         setConversations(prev => prev[convoId] ? prev : { ...prev, [convoId]: { _id: convoId, type: 'direct', memberIds: [msg.senderId] } as any });
-        // If I'm part of it but not viewing, could mark delivered; when I open, we'll mark seen.
       });
       socket.on('messages:seen', (data: { conversationId: string; userId: string }) => {
         setMessagesByConvo(prev => {
@@ -94,6 +107,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
               if (res.ok) {
                 const convos: Conversation[] = await res.json();
                 setConversations(prev => ({ ...prev, ...Object.fromEntries(convos.map(c => [c._id, c])) }));
+                // Join all existing conversation rooms to receive new messages in background
+                convos.forEach(c => socketRef.current!.emit('join', c._id));
                 // Fetch last message for each conversation (limit=1)
                 await Promise.all(convos.map(async c => {
                   try {
@@ -106,6 +121,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     }
                   } catch {}
                 }));
+                // Fetch participant usernames for offline users
+                const participantIds = Array.from(new Set(convos.flatMap(c => c.memberIds.filter(id => id !== user.userId))));
+                if (participantIds.length) {
+                  try {
+                    const ur = await fetch(`${serverUrl}/api/users?ids=${participantIds.join(',')}`);
+                    if (ur.ok) {
+                      const usersList: { _id: string; username: string }[] = await ur.json();
+                      setUserDirectory(prev => ({ ...prev, ...Object.fromEntries(usersList.map(u => [u._id, u.username])) }));
+                    }
+                  } catch {/* ignore */}
+                }
               }
             } catch (e) {
               // eslint-disable-next-line no-console
@@ -118,10 +144,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
-  const loadMessages = useCallback(async (conversationId: string) => {
-    if (messagesByConvo[conversationId]) return; // already loaded
+  const loadMessages = useCallback(async (conversationId: string, force = false) => {
+    // If we only have a single preview message (limit=1 prefetch) or force requested, fetch full history.
+    const existing = messagesByConvo[conversationId];
+    if (!force && existing && existing.length > 1) return;
     try {
       const res = await fetch(`${serverUrl}/api/rooms/${conversationId}/messages`);
+      if (!res.ok) return;
       const data: Message[] = await res.json();
       setMessagesByConvo(prev => ({ ...prev, [conversationId]: data }));
     } catch (e) {
@@ -147,13 +176,19 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, [loadMessages]);
 
+  const openConversation = useCallback(async (conversationId: string) => {
+    if (!conversationId) return;
+    setActiveConversationId(conversationId);
+    if (socketRef.current) socketRef.current.emit('join', conversationId);
+    await loadMessages(conversationId, true);
+  }, [loadMessages]);
+
   const send = useCallback((text: string) => {
     if (!socketRef.current || !me || !activeConversationId || !text.trim()) return;
-  // optimistic placeholder
-  const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
-  const optimistic: Message = { _id: tempId, conversationId: activeConversationId, senderId: me.userId, text, createdAt: new Date().toISOString(), deliveredTo: [me.userId], seenBy: [] };
-  setMessagesByConvo(prev => ({ ...prev, [activeConversationId]: [...(prev[activeConversationId] || []), optimistic] }));
-  socketRef.current.emit('message:send', { conversationId: activeConversationId, senderId: me.userId, text });
+    const tempId = 'temp-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    const optimistic: Message = { _id: tempId, clientMessageId: tempId, conversationId: activeConversationId, senderId: me.userId, text, createdAt: new Date().toISOString(), deliveredTo: [me.userId], seenBy: [] };
+    setMessagesByConvo(prev => ({ ...prev, [activeConversationId]: [...(prev[activeConversationId] || []), optimistic] }));
+    socketRef.current.emit('message:send', { conversationId: activeConversationId, senderId: me.userId, text, clientMessageId: tempId });
   }, [activeConversationId, me]);
 
   const startTyping = useCallback(() => {
@@ -208,6 +243,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   messagesMap: messagesByConvo,
     login,
     openDirect,
+  openConversation,
     send,
   startTyping,
   isTyping,

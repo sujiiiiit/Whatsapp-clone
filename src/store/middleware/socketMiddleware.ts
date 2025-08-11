@@ -20,11 +20,31 @@ const socketMiddleware: Middleware = store => next => (action: unknown) => {
         socket.on('message:new', (msg) => {
           const convoId = (msg.conversationId || msg.roomId);
           store.dispatch(upsertConversation({ _id: convoId, type: 'direct', memberIds: [msg.senderId], title: '' } as any));
-          if (msg.clientMessageId) {
-            store.dispatch(reconcileMessage({ conversationId: convoId, clientMessageId: msg.clientMessageId, serverMessage: msg }));
-          } else {
-            store.dispatch(addMessages({ conversationId: convoId, messages: [msg] }));
-          }
+            if (msg.clientMessageId) {
+              store.dispatch(reconcileMessage({ conversationId: convoId, clientMessageId: msg.clientMessageId, serverMessage: msg }));
+            } else {
+              // Fallback: try to reconcile if sender is self and message matches optimistic
+              const state = store.getState();
+              const myId = state.user?.user?.userId;
+              if (msg.senderId === myId) {
+                const list = state.messages.byConversation[convoId] || [];
+                // Find optimistic message by sender, text, and recent timestamp (within 10s)
+                const idx = list.findIndex((m: any) =>
+                  m.senderId === myId &&
+                  m.text === msg.text &&
+                  m._id?.startsWith('temp-') &&
+                  Math.abs(new Date(m.createdAt).getTime() - new Date(msg.createdAt).getTime()) < 10000
+                );
+                if (idx !== -1) {
+                  // Use optimistic's clientMessageId for reconciliation
+                  store.dispatch(reconcileMessage({ conversationId: convoId, clientMessageId: list[idx].clientMessageId, serverMessage: msg }));
+                } else {
+                  store.dispatch(addMessages({ conversationId: convoId, messages: [msg] }));
+                }
+              } else {
+                store.dispatch(addMessages({ conversationId: convoId, messages: [msg] }));
+              }
+            }
         });
         socket.on('messages:seen', (data) => store.dispatch(markSeen(data)) );
         socket.on('typing', (data) => store.dispatch(setTyping(data)) );

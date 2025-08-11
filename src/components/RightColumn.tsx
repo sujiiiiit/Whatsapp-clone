@@ -68,8 +68,8 @@ export const RightColumn: React.FC<RightColumnProps> = ({
             <IconButton className="tgico tgico-3dots" />
         </div>
       </div>
-      <div className="w-full flex-1 relative z-[4] bg-[var(--wa-secondary)] flex flex-col">
-        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+      <div className="w-full flex-1 relative z-[4] bg-[var(--wa-secondary)] flex flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 ">
           {!activeConversationId && <p className="text-xs opacity-70">Select a user to start chatting.</p>}
           {messages.map(m => {
             const mine = m.senderId === me?.userId;

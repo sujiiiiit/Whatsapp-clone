@@ -1,9 +1,9 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useChat } from "@/lib/ChatContext";
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 
 const ChatList: React.FC = () => {
-  const { me, login, online, openDirect, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline } = useChat();
+  const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername } = useChat();
   const [username, setUsername] = useState("");
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -14,6 +14,16 @@ const ChatList: React.FC = () => {
     await login(username.trim());
     setLoggingIn(false);
   };
+
+  const sortedConversations = useMemo(() => {
+    if (!me) return [] as any[];
+    const list = Object.values(conversations).filter((c: any) => c.type === 'direct' && c.memberIds.includes(me.userId));
+    return list.sort((a: any,b: any)=>{
+      const aLast = messagesMap[a._id]?.slice(-1)[0]?.createdAt;
+      const bLast = messagesMap[b._id]?.slice(-1)[0]?.createdAt;
+      return new Date(bLast || 0).getTime() - new Date(aLast || 0).getTime();
+    });
+  }, [conversations, messagesMap, me]);
 
   if (!me) {
     return (
@@ -27,16 +37,38 @@ const ChatList: React.FC = () => {
 
   return (
     <div className="flex w-full flex-col gap-2">
-      {online.length === 0 && <p className="text-xs text-center text-muted-foreground mt-2">No other users online</p>}
-      {online.map(u => {
-        const convo = Object.values(conversations).find(c => c.type==='direct' && c.memberIds.includes(u.userId) && c.memberIds.includes(me.userId));
-        const isActive = convo && convo._id === activeConversationId;
-        const lastMsg = convo ? (messagesMap[convo._id]?.slice(-1)[0]) : undefined;
-  const typingNow = convo && isTyping(convo._id);
-  const lastText = typingNow ? 'typing…' : (lastMsg ? lastMsg.text : 'Start chatting');
+      {sortedConversations.length === 0 && <p className="text-xs text-center text-muted-foreground mt-2">No chats yet</p>}
+      {sortedConversations.map((convo: any) => {
+        const lastMsg = messagesMap[convo._id]?.slice(-1)[0];
+        const partnerId = convo.memberIds.find((id: string) => id !== me.userId);
+        const partnerUsername = (partnerId && getPartnerUsername(convo._id)) || partnerId?.slice(0,6) || 'User';
+        const onlineStatus = isPartnerOnline(convo._id);
+        const isActive = convo._id === activeConversationId;
+        const typingNow = isTyping(convo._id);
+        const lastText = typingNow ? 'typing…' : (lastMsg ? lastMsg.text : 'Start chatting');
         const time = lastMsg ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
         return (
-          <div key={u.userId} onClick={()=>openDirect(u.username)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition ${isActive ? 'bg-[var(--wa-secondary)]' : ''}`}>
+          <div key={convo._id} onClick={()=> openConversation(convo._id)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition ${isActive ? 'bg-[var(--wa-secondary)]' : ''}`}>
+            <Avatar className="size-11">
+              <AvatarImage src={""} />
+              <AvatarFallback>{partnerUsername.slice(0,2).toUpperCase()}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 ml-4 min-w-0">
+              <div className="flex justify-between items-center">
+                <h4 className="font-medium text-gray-900 truncate">{partnerUsername}{!onlineStatus && <span className="text-[10px] ml-1 opacity-60">(offline)</span>}</h4>
+                <span className="text-[10px] text-gray-500">{time || (onlineStatus ? 'online' : '')}</span>
+              </div>
+              <div className="flex items-center text-xs text-gray-500 truncate">
+                <span className="truncate">{lastText}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {/* New / unseen contacts currently online (no existing direct conversation) */}
+  {online.filter(u => !sortedConversations.some((c: any) => c.memberIds.includes(u.userId))).map(u => {
+        return (
+          <div key={u.userId} onClick={()=> openDirect(u.username)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition`}>
             <Avatar className="size-11">
               <AvatarImage src={""} />
               <AvatarFallback>{u.username.slice(0,2).toUpperCase()}</AvatarFallback>
@@ -44,10 +76,10 @@ const ChatList: React.FC = () => {
             <div className="flex-1 ml-4 min-w-0">
               <div className="flex justify-between items-center">
                 <h4 className="font-medium text-gray-900 truncate">{u.username}</h4>
-                <span className="text-[10px] text-gray-500">{time || (convo && isPartnerOnline(convo._id) ? 'online' : '')}</span>
+                <span className="text-[10px] text-gray-500">online</span>
               </div>
               <div className="flex items-center text-xs text-gray-500 truncate">
-                <span className="truncate">{lastText}</span>
+                <span className="truncate">Start chatting</span>
               </div>
             </div>
           </div>
