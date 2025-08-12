@@ -27,7 +27,7 @@ const iconGroups: { top: IconItem[]; bottom: IconItem[] } = {
 
 const App: React.FC = () => {
   const { colRightRef } = useWindowDimensions();
-  const { state: dataState, toggleState: toggleDataState } = useToggleState("no");
+  const { state: dataState, toggleState: toggleDataState } = useToggleState("leftOpen");
   const inbtw = useMediaQuery("only screen and (min-width : 640px) and (max-width : 1024px)");
   const isMobile = useMediaQuery("only screen and (max-width : 640px)");
 
