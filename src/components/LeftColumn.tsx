@@ -14,11 +14,13 @@ import ChatList from "./chatList";
 type LeftColumnProps = {
   dataState: string;
   iconGroups: { top: IconItem[]; bottom: IconItem[] };
+  onChatItemClick?: () => void;
 };
 
 export const LeftColumn: React.FC<LeftColumnProps> = ({
   dataState,
   iconGroups,
+  onChatItemClick,
 }) => {
   const { searchContent, handleSearchChange } = useSearchInput();
   const { openSearch } = useSearch();
@@ -93,7 +95,7 @@ export const LeftColumn: React.FC<LeftColumnProps> = ({
           <span className="group-focus-within:text-primaryColor tgico tgico-search absolute group left-3 top-2 transition-all duration-200 ease-in-out" />
         </div>
         <Checkbox />
-        <ChatList />
+  <ChatList onItemClick={onChatItemClick} />
       </div>
     </div>
   );

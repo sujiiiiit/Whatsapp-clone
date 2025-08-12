@@ -2,7 +2,11 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useChat } from "@/lib/ChatContext";
 import React, { useState, useMemo } from 'react';
 
-const ChatList: React.FC = () => {
+type ChatListProps = {
+  onItemClick?: () => void;
+};
+
+const ChatList: React.FC<ChatListProps> = ({ onItemClick }) => {
   const { me, login, online, openDirect, openConversation, activeConversationId, conversations, messagesMap, isTyping, isPartnerOnline, getPartnerUsername, unreadCounts, userDirectory } = useChat();
   // We'll compute a directory of all known users from conversations + online + userDirectory via getPartnerUsername (already resolved inside context)
   const [username, setUsername] = useState("");
@@ -50,7 +54,7 @@ const ChatList: React.FC = () => {
         const time = lastMsg ? new Date(lastMsg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
   const unreadCount = unreadCounts?.[convo._id] ?? 0;
         return (
-          <div key={convo._id} onClick={()=> openConversation(convo._id)} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition ${isActive ? 'bg-[var(--wa-secondary)]' : ''}`}>
+          <div key={convo._id} onClick={()=> { openConversation(convo._id); onItemClick?.(); }} className={`w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition ${isActive ? 'bg-[var(--wa-secondary)]' : ''}`}>
             <Avatar className="size-11">
               <AvatarImage src={""} />
               <AvatarFallback>{partnerUsername.slice(0,2).toUpperCase()}</AvatarFallback>
@@ -81,7 +85,7 @@ const ChatList: React.FC = () => {
         .map(([uid, uname]) => {
           const isUserOnline = online.some(o => o.userId === uid);
           return (
-            <div key={uid} onClick={()=> openDirect(uname)} className="w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition">
+            <div key={uid} onClick={()=> { openDirect(uname); onItemClick?.(); }} className="w-full flex items-center p-3 cursor-pointer hover:bg-[var(--wa-secondary)] rounded-2xl transition">
               <Avatar className="size-11">
                 <AvatarImage src={""} />
                 <AvatarFallback>{uname.slice(0,2).toUpperCase()}</AvatarFallback>
