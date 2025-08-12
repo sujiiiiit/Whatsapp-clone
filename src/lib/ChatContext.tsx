@@ -51,6 +51,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userDirectory, setUserDirectory] = useState<Record<string,string>>({});
   const socketRef = useRef<Socket | null>(null);
   const serverUrl = import.meta.env.VITE_SERVER_URL || 'http://localhost:5000';
+  const socketUrl = (import.meta as any).env.VITE_SOCKET_URL || serverUrl;
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [hydrated, setHydrated] = useState(false);
@@ -58,7 +59,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ensureSocket = useCallback(async () => {
     if (socketRef.current && socketRef.current.connected) return socketRef.current;
     const { io } = await import('socket.io-client');
-    const socket = io(serverUrl);
+    const socket = io(socketUrl);
     socketRef.current = socket;
     socket.on('presence:users', (list: PresenceUser[]) => setOnline(list));
     socket.on('presence:users', (list: PresenceUser[]) => {
@@ -104,7 +105,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
     });
     return socket;
-  }, [serverUrl, me]);
+  }, [socketUrl, me]);
 
   useEffect(() => { ensureSocket(); return () => { socketRef.current?.disconnect(); }; }, [ensureSocket]);
 
